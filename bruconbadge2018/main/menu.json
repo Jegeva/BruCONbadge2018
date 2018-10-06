@@ -1,0 +1,53 @@
+[
+    {
+	"menutitle":"Schedule",
+	"rank":0,
+	"function":null,
+	"submenus":[
+	    {
+		"menutitle":"03/10",
+		"rank":0,
+		"function":"sched03",
+		"submenus":null
+	    },
+	    {
+		"menutitle":"04/10",
+		"rank":1,
+		"function":"sched04",
+		"submenus":null
+	    },
+	    {
+		"menutitle":"05/10",
+		"rank":2,
+		"function":"sched05",
+		"submenus":null
+	    }
+	]
+    },
+    {
+	"menutitle":"Map",
+	"rank":1,
+	"function":null,
+	"submenus":[
+	    {
+		"menutitle":"Map Westvleteren",
+		"rank":0,
+		"function":"MapWest",
+		"submenus":null
+	    },
+	    {
+		"menutitle":"Map Novotel",
+		"rank":1,
+		"function":"MapNovo",
+		"submenus":null
+	    }
+
+	]
+    },
+    {
+	"menutitle":"H4cking for B33r",
+	"rank":2,
+	"function":"VivaLaVodka",
+	"submenus":null
+    }
+]

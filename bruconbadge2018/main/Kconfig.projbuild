@@ -1,0 +1,113 @@
+menu "Brucon badge 2018 : Hardware config"
+
+config NOKIA6100_LCD_GPIO_SCK
+    int "LCD Clock Pin"
+	range 0 34
+	default 19
+	help
+		GPIO number (IOxx) to toggle clock.
+		GPIOs 35-39 are input-only so cannot be used as outputs.
+		must be spi capable or the source chqnged for bitbanging
+config NOKIA6100_LCD_GPIO_DIO
+    int "LCD Data Pin"
+	range 0 34
+	default 23
+	help
+		GPIO number (IOxx) to data.
+		GPIOs 35-39 are input-only so cannot be used as outputs.
+		must be spi capable or the source chqnged for bitbanging
+config NOKIA6100_LCD_GPIO_CS
+    int "LCD Chip Select Pin"
+	range 0 34
+	default 22
+	help
+		GPIO number (IOxx) to chipselect screen.
+		GPIOs 35-39 are input-only so cannot be used as outputs.
+		must be spi capable or the source chqnged for bitbanging
+config NOKIA6100_LCD_GPIO_RST
+    int "LCD Reset Pin"
+	range 0 34
+	default 18
+	help
+		GPIO number (IOxx) to reset screen.
+		GPIOs 35-39 are input-only so cannot be used as outputs.
+config NOKIA6100_LCD_GPIO_BACKLIGHT
+    int "LCD Backlight enable pin"
+	range 0 34
+	default 21
+	help
+		GPIO number (IOxx) to toggle backlight.
+		GPIOs 35-39 are input-only so cannot be used as outputs.
+
+config CROSS_PIN_BUTTON_LEFT
+    int "Button LEFT pin"
+	range 0 34
+	default 26
+	help
+		GPIO number (IOxx) for direction cross LEFT button.
+config CROSS_PIN_BUTTON_RIGHT
+    int "Button RIGHT pin"
+	range 0 34
+	default 33
+	help
+		GPIO number (IOxx) for direction cross RIGHT button.
+config CROSS_PIN_BUTTON_UP
+    int "Button UP pin"
+	range 0 35
+	default 27
+	help
+		GPIO number (IOxx) for direction cross UP button.
+config CROSS_PIN_BUTTON_DOWN
+    int "Button DOWN pin"
+	range 0 34
+	default 25
+	help
+		GPIO number (IOxx) for direction cross DOWN button.
+config CROSS_PIN_BUTTON_A
+    int "Button A pin"
+	range 0 34
+	default 17
+	help
+		GPIO number (IOxx) for A button.
+config CROSS_PIN_BUTTON_B
+    int "Button B pin"
+	range 0 34
+	default 16
+	help
+		GPIO number (IOxx) for B button.
+config NCHARGIN_GPIO_PIN
+    int "not chargin gpio pin"
+	range 0 34
+	default 34
+	help
+		GPIO number (IOxx) for the not chargin net.
+
+config ALCSENSE_HEATER_PIN
+    int "Pin for the alcool sensor heater pin"
+	range 0 34
+	default 4
+	help
+		Pin for the alcool sensor heater pin
+
+config ALCSENSE_ADC_PIN
+    int "Pin for the alcool sensor ADC pin"
+	range 0 35
+	default 35
+	help
+		Pin for the alcool sensor ADC pin
+
+config BAT_ADC_PIN
+    int "Pin for the battery load ADC pin"
+	range 0 35
+	default 32
+	help
+		Pin for the alcool sensor ADC pin
+
+
+#define PIN_BU 35
+#define PIN_BD 25
+#define PIN_BA 17
+#define PIN_BB 16
+
+
+endmenu

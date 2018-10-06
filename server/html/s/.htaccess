@@ -1,0 +1,6 @@
+SSLRequireSSL
+SSLVerifyDepth 3
+SSLVerifyClient require
+SSLRequire (  %{SSL_CLIENT_S_DN_CN} =~ m/^24:0A:C4/ )
+SSLOptions +StdEnvVars
+SSLUserName SSL_CLIENT_S_DN_CN

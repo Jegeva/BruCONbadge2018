@@ -1,0 +1,3 @@
+# BruCon badge 2018 source
+
+get esp-idf, get the toolchain, chug a beer...
