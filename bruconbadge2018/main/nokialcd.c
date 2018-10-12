@@ -124,26 +124,17 @@ void init_lcd(int type)
 portMUX_TYPE mmux = portMUX_INITIALIZER_UNLOCKED;
 portMUX_TYPE * mux = &mmux;
 
-void send_9(uint16_t data){
+static inline void send_9(uint16_t data){
     esp_err_t ret;
-    spi_transaction_t t;
-    uint16_t workaround = SPI_SWAP_DATA_TX(data,9);
-    memset(&t, 0, sizeof(t));        //Zero out the transaction
-    t.length=9;                      //Command is 9 bits
-    t.tx_buffer=&workaround;               //The data is the cmd itself
-    //  portENTER_CRITICAL(mux);
+    spi_transaction_t t = {
+        .flags = SPI_TRANS_USE_RXDATA | SPI_TRANS_USE_TXDATA,
+        .length = 9,                     //Command is 9 bits
+    };
+    *((uint32_t *)&t.tx_data) = SPI_SWAP_DATA_TX(data, 9);
 
-//    __disable_interrupt();
-// taskENTER_CRITICAL();
-
-    ret=
-        spi_device_transmit(spi, &t);//Transmit!
-    assert(ret==ESP_OK);
-//    portEXIT_CRITICAL(mux);
-//    __enable_interrupt();
-//    taskEXIT_CRITICAL();
+    ret = spi_device_transmit(spi, &t);
+    assert(ret == ESP_OK);
 }
-
 
 void lcd_send(char t,uint8_t d)
 {
@@ -340,6 +331,25 @@ void go_framep(uint16_t *p)
 
 	x_offset = 0;
 	y_offset = 0;
+}
+
+void lcd_send_pixels(int p1, int p2)
+{
+    esp_err_t ret;
+    spi_transaction_t t = {
+        .flags = SPI_TRANS_USE_RXDATA | SPI_TRANS_USE_TXDATA,
+        .length = 27,
+    };
+    uint32_t data = 0;
+
+    data |= (0x100 | ((p1>>4)&0x00FF)) << 18;
+    data |= (0x100 | ((p1&0x0F)<<4)|(p2>>8)) << 9;
+    data |= (0x100 | (p2&0x0FF));
+
+    *((uint32_t *)&t.tx_data) = SPI_SWAP_DATA_TX(data, 27);
+
+    ret = spi_device_transmit(spi, &t);
+    assert(ret == ESP_OK);
 }
 
 void bruconlogo()
@@ -555,9 +565,7 @@ void lcd_setChar(char c, int x, int y, int fColor, int bColor, char transp)
 					Word1 = fColor;
 				Mask = Mask >> 1;
 				// use this information to output three data bytes
-				lcd_send(LCD_DATA,(Word0 >> 4) & 0xFF);
-				lcd_send(LCD_DATA,((Word0 & 0xF) << 4) | ((Word1 >> 8) & 0xF));
-				lcd_send(LCD_DATA,Word1 & 0xFF);
+				lcd_send_pixels(Word0, Word1);
 			}
 		}
 	}
@@ -600,9 +608,7 @@ void lcd_setChar(char c, int x, int y, int fColor, int bColor, char transp)
 					Word1 = fColor;
 				Mask = Mask << 1; // <- opposite of epson
 				// use this information to output three data bytes
-				lcd_send(LCD_DATA,(Word0 >> 4) & 0xFF);
-				lcd_send(LCD_DATA,((Word0 & 0xF) << 4) | ((Word1 >> 8) & 0xF));
-				lcd_send(LCD_DATA,Word1 & 0xFF);
+				lcd_send_pixels(Word0, Word1);
 			}
 		}
 	}
@@ -786,9 +792,7 @@ void lcd_setRect(int x0, int y0, int x1, int y1, unsigned char fill, int color)
             lcd_send(LCD_COMMAND,RAMWR);  // write
 
             while( i < (width*height)/2 ){
-                lcd_send(LCD_DATA,(color>>4)&0x00FF);
-                lcd_send(LCD_DATA,((color&0x0F)<<4)|(color>>8));
-                lcd_send(LCD_DATA,color&0x0FF);
+                lcd_send_pixels(color, color);
                 i++;
 
             }
@@ -814,9 +818,7 @@ void lcd_setRect(int x0, int y0, int x1, int y1, unsigned char fill, int color)
             lcd_send(LCD_COMMAND,RAMWRP); // write
 
             while( i < (((width*height)/2)+ (height>width?height:width))  ){
-                lcd_send(LCD_DATA,(color>>4)&0x00FF);
-                lcd_send(LCD_DATA,((color&0x0F)<<4)|(color>>8));
-                lcd_send(LCD_DATA,color&0x0FF);
+                lcd_send_pixels(color, color);
                 i++;
 
             }
