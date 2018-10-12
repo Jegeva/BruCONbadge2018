@@ -37,6 +37,69 @@ uint16_t * frame=NULL;// [ROW_LENGTH*COL_HEIGHT];
 void do_spi_init();
 
 
+#define CMD(x)  (x)
+#define DATA(x) (0x100 | (x))
+
+typedef struct {
+    int bit;             /* next available bit position, MSB to LSB */
+    int pos;             /* current position in buffer[] */
+    int total_bits;      /* total bits currently in the buffer */
+    int max_bits;        /* maximum number of bits in the buffer */
+    uint32_t buffer[0];
+} bit_buffer_t;
+
+static inline void bit_buffer_clear(bit_buffer_t *bb) {
+    bb->bit = 0;
+    bb->pos = 0;
+    bb->total_bits = 0;
+    bb->buffer[0] = 0;   /* Only the first element of the buffer needs to be cleared, the 'next'
+                          * element will be cleared when the buffer is getting used */
+}
+
+static inline bit_buffer_t *bit_buffer_alloc(int bits) {
+    bit_buffer_t *bb = heap_caps_malloc(sizeof(bit_buffer_t) + (bits + 31) / 8, MALLOC_CAP_DMA);
+    if (bb)
+        bit_buffer_clear(bb);
+    return bb;
+}
+
+static inline void bit_buffer_add(bit_buffer_t *bb, int bits, uint32_t data) {
+    int available = 32 - bb->bit;  /* the available bits in buffer[pos] */
+
+    if (bits == 0)
+        return;
+
+    if (available >= bits) {       /* test if it fits in one step */
+        bb->buffer[bb->pos] |= __builtin_bswap32(data << (available - bits));
+    }
+    else {                         /* crossing the 32-bit boundary */
+        bb->buffer[bb->pos] |= __builtin_bswap32(data >> (bits - available));
+        bb->buffer[bb->pos + 1] = __builtin_bswap32(data << (32 - (bits - available)));
+    }
+
+    bb->total_bits += bits;
+    bb->bit += bits;
+    bb->pos += bb->bit / 32;
+    bb->bit %= 32;
+
+    if (bb->bit == 0)              /* an element was filled without overflow, make sure that */
+        bb->buffer[bb->pos] = 0;   /* the next element is cleared */
+}
+
+void lcd_send_bit_buffer(spi_device_handle_t spi, bit_buffer_t *bb) {
+    esp_err_t ret;
+    spi_transaction_t t = {
+        .length = bb->total_bits,
+        .tx_buffer = bb->buffer,
+    };
+
+    ret = spi_device_transmit(spi, &t);
+    assert(ret == ESP_OK);
+}
+
+
+static bit_buffer_t *line_buffer;
+
 
 
 
@@ -246,7 +309,7 @@ void init_lcd(int type)
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
 
-
+    line_buffer = bit_buffer_alloc(((ROW_LENGTH + 1) / 2 * 3) * 9);
 }
 
 
