@@ -13,9 +13,6 @@ extern TickType_t  last_click;
 
 spi_device_handle_t spi;
 uint8_t driver;
-static char x_offset = 0;
-static char y_offset = 0;
-static char lastfill = 0;
 
 typedef struct {
     uint8_t cmd;
@@ -356,44 +353,29 @@ void fillframe12B(int color_12b)
             frame[i++]=color_12b;
 }
 
+
 void go_framep(uint16_t *p)
 {
+    bit_buffer_clear(line_buffer);
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? PASET : PASETP)));
+    bit_buffer_add(line_buffer, 9, DATA(0));
+    bit_buffer_add(line_buffer, 9, DATA(131));
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? CASET : CASETP)));
+    bit_buffer_add(line_buffer, 9, DATA(0));
+    bit_buffer_add(line_buffer, 9, DATA(131));
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? RAMWR : RAMWRP)));
+    lcd_send_bit_buffer(spi, line_buffer);
 
-
-	if (driver==EPSON) // if it's an Epson
-	{
-		lcd_send(LCD_COMMAND,PASET);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
-
-		lcd_send(LCD_COMMAND,CASET);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
-
-		lcd_send(LCD_COMMAND,RAMWR);
-	}
-	else // otherwise it's a phillips
-	{
-		lcd_send(LCD_COMMAND,PASETP);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
-
-		lcd_send(LCD_COMMAND,CASETP);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
-
-        lcd_send(LCD_COMMAND,RAMWRP);
-	}
-
-	for(unsigned int i=0; i < (ROW_LENGTH*COL_HEIGHT); i+=2)
-	{
-		lcd_send(LCD_DATA,(  (*(p+i))  >>4)&0xFF);
-        lcd_send(LCD_DATA,( ((*(p+i))  &0x0F)<<4)|( (*(p+i+1))>>8));
-		lcd_send(LCD_DATA,( (*(p+i+1)) &0xFF));
-	}
-
-	x_offset = 0;
-	y_offset = 0;
+    for (unsigned int y = 0; y < COL_HEIGHT; y++) {
+        bit_buffer_clear(line_buffer);
+        for (unsigned int x = 0; x < ROW_LENGTH; x += 2, p += 2) {
+            bit_buffer_add(line_buffer, 9, 0x100 | (((*p) >> 4) & 0xff));
+            bit_buffer_add(line_buffer, 9, 0x100 | ((*p & 0x0F) << 4) | (*(p + 1) >> 8));
+            bit_buffer_add(line_buffer, 9, 0x100 | (*(p + 1) & 0xff));
+        }
+        lcd_send_bit_buffer(spi, line_buffer);
+        bit_buffer_clear(line_buffer);
+    }
 }
 
 void lcd_send_pixels(int p1, int p2)
@@ -511,43 +493,29 @@ void MapNovoL(void* arg){
 
 
 void lcd_clearB12(int color){
-    lastfill=color;
+    bit_buffer_clear(line_buffer);
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? PASET : PASETP)));
+    bit_buffer_add(line_buffer, 9, DATA(0));
+    bit_buffer_add(line_buffer, 9, DATA(131));
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? CASET : CASETP)));
+    bit_buffer_add(line_buffer, 9, DATA(0));
+    bit_buffer_add(line_buffer, 9, DATA(131));
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? RAMWR : RAMWRP)));
+    lcd_send_bit_buffer(spi, line_buffer);
 
-	if (driver==EPSON) // if it's an Epson
-	{
-		lcd_send(LCD_COMMAND,PASET);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
+    /* Prepare one row */
+    bit_buffer_clear(line_buffer);
+    for (unsigned int x = 0; x < ROW_LENGTH; x += 2) {
+        bit_buffer_add(line_buffer, 9, 0x100 | (((color) >> 4) & 0xff));
+        bit_buffer_add(line_buffer, 9, 0x100 | ((color & 0x0F) << 4) | (color >> 8));
+        bit_buffer_add(line_buffer, 9, 0x100 | (color & 0xff));
+    }
 
-		lcd_send(LCD_COMMAND,CASET);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
+    /* Send the same row until the screen is filled */
+    for (unsigned int y = 0; y < COL_HEIGHT; y++)
+        lcd_send_bit_buffer(spi, line_buffer);
+}
 
-		lcd_send(LCD_COMMAND,RAMWR);
-	}
-	else // otherwise it's a phillips
-	{
-		lcd_send(LCD_COMMAND,PASETP);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
-
-		lcd_send(LCD_COMMAND,CASETP);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
-
-        lcd_send(LCD_COMMAND,RAMWRP);
-	}
-
-	for(unsigned int i=0; i < (131*131)/2; i++)
-	{
-		lcd_send(LCD_DATA,(color>>4)&0x00FF);
-		lcd_send(LCD_DATA,((color&0x0F)<<4)|(color>>8));
-		lcd_send(LCD_DATA,color&0x0FF);
-	}
-
-	x_offset = 0;
-	y_offset = 0;
-};
 void lcd_contrast(char setting){
     	if (driver == EPSON)
 	{
