@@ -13,9 +13,6 @@ extern TickType_t  last_click;
 
 spi_device_handle_t spi;
 uint8_t driver;
-static char x_offset = 0;
-static char y_offset = 0;
-static char lastfill = 0;
 
 typedef struct {
     uint8_t cmd;
@@ -36,6 +33,69 @@ uint16_t * frame=NULL;// [ROW_LENGTH*COL_HEIGHT];
 
 void do_spi_init();
 
+
+#define CMD(x)  (x)
+#define DATA(x) (0x100 | (x))
+
+typedef struct {
+    int bit;             /* next available bit position, MSB to LSB */
+    int pos;             /* current position in buffer[] */
+    int total_bits;      /* total bits currently in the buffer */
+    int max_bits;        /* maximum number of bits in the buffer */
+    uint32_t buffer[0];
+} bit_buffer_t;
+
+static inline void bit_buffer_clear(bit_buffer_t *bb) {
+    bb->bit = 0;
+    bb->pos = 0;
+    bb->total_bits = 0;
+    bb->buffer[0] = 0;   /* Only the first element of the buffer needs to be cleared, the 'next'
+                          * element will be cleared when the buffer is getting used */
+}
+
+static inline bit_buffer_t *bit_buffer_alloc(int bits) {
+    bit_buffer_t *bb = heap_caps_malloc(sizeof(bit_buffer_t) + (bits + 31) / 8, MALLOC_CAP_DMA);
+    if (bb)
+        bit_buffer_clear(bb);
+    return bb;
+}
+
+static inline void bit_buffer_add(bit_buffer_t *bb, int bits, uint32_t data) {
+    int available = 32 - bb->bit;  /* the available bits in buffer[pos] */
+
+    if (bits == 0)
+        return;
+
+    if (available >= bits) {       /* test if it fits in one step */
+        bb->buffer[bb->pos] |= __builtin_bswap32(data << (available - bits));
+    }
+    else {                         /* crossing the 32-bit boundary */
+        bb->buffer[bb->pos] |= __builtin_bswap32(data >> (bits - available));
+        bb->buffer[bb->pos + 1] = __builtin_bswap32(data << (32 - (bits - available)));
+    }
+
+    bb->total_bits += bits;
+    bb->bit += bits;
+    bb->pos += bb->bit / 32;
+    bb->bit %= 32;
+
+    if (bb->bit == 0)              /* an element was filled without overflow, make sure that */
+        bb->buffer[bb->pos] = 0;   /* the next element is cleared */
+}
+
+void lcd_send_bit_buffer(spi_device_handle_t spi, bit_buffer_t *bb) {
+    esp_err_t ret;
+    spi_transaction_t t = {
+        .length = bb->total_bits,
+        .tx_buffer = bb->buffer,
+    };
+
+    ret = spi_device_transmit(spi, &t);
+    assert(ret == ESP_OK);
+}
+
+
+static bit_buffer_t *line_buffer;
 
 
 
@@ -124,26 +184,17 @@ void init_lcd(int type)
 portMUX_TYPE mmux = portMUX_INITIALIZER_UNLOCKED;
 portMUX_TYPE * mux = &mmux;
 
-void send_9(uint16_t data){
+static inline void send_9(uint16_t data){
     esp_err_t ret;
-    spi_transaction_t t;
-    uint16_t workaround = SPI_SWAP_DATA_TX(data,9);
-    memset(&t, 0, sizeof(t));        //Zero out the transaction
-    t.length=9;                      //Command is 9 bits
-    t.tx_buffer=&workaround;               //The data is the cmd itself
-    //  portENTER_CRITICAL(mux);
+    spi_transaction_t t = {
+        .flags = SPI_TRANS_USE_RXDATA | SPI_TRANS_USE_TXDATA,
+        .length = 9,                     //Command is 9 bits
+    };
+    *((uint32_t *)&t.tx_data) = SPI_SWAP_DATA_TX(data, 9);
 
-//    __disable_interrupt();
-// taskENTER_CRITICAL();
-
-    ret=
-        spi_device_transmit(spi, &t);//Transmit!
-    assert(ret==ESP_OK);
-//    portEXIT_CRITICAL(mux);
-//    __enable_interrupt();
-//    taskEXIT_CRITICAL();
+    ret = spi_device_transmit(spi, &t);
+    assert(ret == ESP_OK);
 }
-
 
 void lcd_send(char t,uint8_t d)
 {
@@ -255,7 +306,7 @@ void init_lcd(int type)
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
 
-
+    line_buffer = bit_buffer_alloc(((ROW_LENGTH + 1) / 2 * 3) * 9);
 }
 
 
@@ -302,44 +353,48 @@ void fillframe12B(int color_12b)
             frame[i++]=color_12b;
 }
 
+
 void go_framep(uint16_t *p)
 {
+    bit_buffer_clear(line_buffer);
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? PASET : PASETP)));
+    bit_buffer_add(line_buffer, 9, DATA(0));
+    bit_buffer_add(line_buffer, 9, DATA(131));
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? CASET : CASETP)));
+    bit_buffer_add(line_buffer, 9, DATA(0));
+    bit_buffer_add(line_buffer, 9, DATA(131));
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? RAMWR : RAMWRP)));
+    lcd_send_bit_buffer(spi, line_buffer);
 
+    for (unsigned int y = 0; y < COL_HEIGHT; y++) {
+        bit_buffer_clear(line_buffer);
+        for (unsigned int x = 0; x < ROW_LENGTH; x += 2, p += 2) {
+            bit_buffer_add(line_buffer, 9, 0x100 | (((*p) >> 4) & 0xff));
+            bit_buffer_add(line_buffer, 9, 0x100 | ((*p & 0x0F) << 4) | (*(p + 1) >> 8));
+            bit_buffer_add(line_buffer, 9, 0x100 | (*(p + 1) & 0xff));
+        }
+        lcd_send_bit_buffer(spi, line_buffer);
+        bit_buffer_clear(line_buffer);
+    }
+}
 
-	if (driver==EPSON) // if it's an Epson
-	{
-		lcd_send(LCD_COMMAND,PASET);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
+void lcd_send_pixels(int p1, int p2)
+{
+    esp_err_t ret;
+    spi_transaction_t t = {
+        .flags = SPI_TRANS_USE_RXDATA | SPI_TRANS_USE_TXDATA,
+        .length = 27,
+    };
+    uint32_t data = 0;
 
-		lcd_send(LCD_COMMAND,CASET);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
+    data |= (0x100 | ((p1>>4)&0x00FF)) << 18;
+    data |= (0x100 | ((p1&0x0F)<<4)|(p2>>8)) << 9;
+    data |= (0x100 | (p2&0x0FF));
 
-		lcd_send(LCD_COMMAND,RAMWR);
-	}
-	else // otherwise it's a phillips
-	{
-		lcd_send(LCD_COMMAND,PASETP);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
+    *((uint32_t *)&t.tx_data) = SPI_SWAP_DATA_TX(data, 27);
 
-		lcd_send(LCD_COMMAND,CASETP);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
-
-        lcd_send(LCD_COMMAND,RAMWRP);
-	}
-
-	for(unsigned int i=0; i < (ROW_LENGTH*COL_HEIGHT); i+=2)
-	{
-		lcd_send(LCD_DATA,(  (*(p+i))  >>4)&0xFF);
-        lcd_send(LCD_DATA,( ((*(p+i))  &0x0F)<<4)|( (*(p+i+1))>>8));
-		lcd_send(LCD_DATA,( (*(p+i+1)) &0xFF));
-	}
-
-	x_offset = 0;
-	y_offset = 0;
+    ret = spi_device_transmit(spi, &t);
+    assert(ret == ESP_OK);
 }
 
 void bruconlogo()
@@ -438,43 +493,29 @@ void MapNovoL(void* arg){
 
 
 void lcd_clearB12(int color){
-    lastfill=color;
+    bit_buffer_clear(line_buffer);
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? PASET : PASETP)));
+    bit_buffer_add(line_buffer, 9, DATA(0));
+    bit_buffer_add(line_buffer, 9, DATA(131));
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? CASET : CASETP)));
+    bit_buffer_add(line_buffer, 9, DATA(0));
+    bit_buffer_add(line_buffer, 9, DATA(131));
+    bit_buffer_add(line_buffer, 9, CMD((driver == EPSON ? RAMWR : RAMWRP)));
+    lcd_send_bit_buffer(spi, line_buffer);
 
-	if (driver==EPSON) // if it's an Epson
-	{
-		lcd_send(LCD_COMMAND,PASET);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
+    /* Prepare one row */
+    bit_buffer_clear(line_buffer);
+    for (unsigned int x = 0; x < ROW_LENGTH; x += 2) {
+        bit_buffer_add(line_buffer, 9, 0x100 | (((color) >> 4) & 0xff));
+        bit_buffer_add(line_buffer, 9, 0x100 | ((color & 0x0F) << 4) | (color >> 8));
+        bit_buffer_add(line_buffer, 9, 0x100 | (color & 0xff));
+    }
 
-		lcd_send(LCD_COMMAND,CASET);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
+    /* Send the same row until the screen is filled */
+    for (unsigned int y = 0; y < COL_HEIGHT; y++)
+        lcd_send_bit_buffer(spi, line_buffer);
+}
 
-		lcd_send(LCD_COMMAND,RAMWR);
-	}
-	else // otherwise it's a phillips
-	{
-		lcd_send(LCD_COMMAND,PASETP);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
-
-		lcd_send(LCD_COMMAND,CASETP);
-		lcd_send(LCD_DATA,0);
-		lcd_send(LCD_DATA,131);
-
-        lcd_send(LCD_COMMAND,RAMWRP);
-	}
-
-	for(unsigned int i=0; i < (131*131)/2; i++)
-	{
-		lcd_send(LCD_DATA,(color>>4)&0x00FF);
-		lcd_send(LCD_DATA,((color&0x0F)<<4)|(color>>8));
-		lcd_send(LCD_DATA,color&0x0FF);
-	}
-
-	x_offset = 0;
-	y_offset = 0;
-};
 void lcd_contrast(char setting){
     	if (driver == EPSON)
 	{
@@ -555,9 +596,7 @@ void lcd_setChar(char c, int x, int y, int fColor, int bColor, char transp)
 					Word1 = fColor;
 				Mask = Mask >> 1;
 				// use this information to output three data bytes
-				lcd_send(LCD_DATA,(Word0 >> 4) & 0xFF);
-				lcd_send(LCD_DATA,((Word0 & 0xF) << 4) | ((Word1 >> 8) & 0xF));
-				lcd_send(LCD_DATA,Word1 & 0xFF);
+				lcd_send_pixels(Word0, Word1);
 			}
 		}
 	}
@@ -600,9 +639,7 @@ void lcd_setChar(char c, int x, int y, int fColor, int bColor, char transp)
 					Word1 = fColor;
 				Mask = Mask << 1; // <- opposite of epson
 				// use this information to output three data bytes
-				lcd_send(LCD_DATA,(Word0 >> 4) & 0xFF);
-				lcd_send(LCD_DATA,((Word0 & 0xF) << 4) | ((Word1 >> 8) & 0xF));
-				lcd_send(LCD_DATA,Word1 & 0xFF);
+				lcd_send_pixels(Word0, Word1);
 			}
 		}
 	}
@@ -786,9 +823,7 @@ void lcd_setRect(int x0, int y0, int x1, int y1, unsigned char fill, int color)
             lcd_send(LCD_COMMAND,RAMWR);  // write
 
             while( i < (width*height)/2 ){
-                lcd_send(LCD_DATA,(color>>4)&0x00FF);
-                lcd_send(LCD_DATA,((color&0x0F)<<4)|(color>>8));
-                lcd_send(LCD_DATA,color&0x0FF);
+                lcd_send_pixels(color, color);
                 i++;
 
             }
@@ -814,9 +849,7 @@ void lcd_setRect(int x0, int y0, int x1, int y1, unsigned char fill, int color)
             lcd_send(LCD_COMMAND,RAMWRP); // write
 
             while( i < (((width*height)/2)+ (height>width?height:width))  ){
-                lcd_send(LCD_DATA,(color>>4)&0x00FF);
-                lcd_send(LCD_DATA,((color&0x0F)<<4)|(color>>8));
-                lcd_send(LCD_DATA,color&0x0FF);
+                lcd_send_pixels(color, color);
                 i++;
 
             }
