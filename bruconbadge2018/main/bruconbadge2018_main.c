@@ -20,6 +20,8 @@
 
 #include "brucon_nvs.h"
 #include "brucon_adc.h"
+#include "driver/gpio.h"
+#include "esp_sleep.h"
 
 #define COL_RED "\033[1;31m"
 #define COL_STOP "\033[0m"
@@ -233,6 +235,49 @@ esp_err_t event_handler(void *ctx, system_event_t *event)
 
 
 
+#if POWEROFF_ENABLED
+// Long-press power-off with deep sleep and button wake. See settings.h for
+// the button assignment and the RTC-GPIO constraint on the wake button.
+static void badge_poweroff(void)
+{
+    char msg[17];
+    switchbacklight(1);
+    bruconlogo();
+    sprintf(msg, "Powering off... ");
+    msg[16] = 0;
+    lcd_setStr(msg, 0, 0, BLACK, B12_WHITE, 1, 0);
+    vTaskDelay(1200 / portTICK_PERIOD_MS);
+
+    // Blank the backlight to save charge; the rail itself stays up in sleep.
+    switchbacklight(0);
+
+    // Buttons are active-low with external pull-ups (idle high, pressed low),
+    // so arm ext0 to wake when the wake button is pulled low. The wake button
+    // is not the held button, so it is already released (high) here.
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)PWRON_WAKE_BTN, 0);
+    esp_deep_sleep_start();   // does not return; wake is a full reset
+}
+
+static void powerbtnTask(void *arg)
+{
+    const TickType_t step = 100 / portTICK_PERIOD_MS;
+    const TickType_t need = PWROFF_HOLD_MS / portTICK_PERIOD_MS;
+    TickType_t held = 0;
+
+    gpio_set_direction((gpio_num_t)PWROFF_HOLD_BTN, GPIO_MODE_INPUT);
+    for(;;){
+        if(gpio_get_level((gpio_num_t)PWROFF_HOLD_BTN) == 0){   // held down
+            held += step;
+            if(held >= need)
+                badge_poweroff();
+        } else {
+            held = 0;
+        }
+        vTaskDelay(step);
+    }
+}
+#endif
+
 void app_main()
 {
   printf("Hello world!\n");
@@ -323,6 +368,9 @@ void app_main()
   xTaskCreate(&wificonnect, "wifiTask", 8192, NULL, 0| portPRIVILEGE_BIT, NULL);
   xTaskCreate(&backlighttimeoutTask, "backlighttimeoutTask", 4096, NULL, 0| portPRIVILEGE_BIT, NULL);
   xTaskCreate(&wifitimeoutTask, "wifitimeoutTask", 4096, NULL, 0| portPRIVILEGE_BIT, NULL);
+#if POWEROFF_ENABLED
+  xTaskCreate(&powerbtnTask, "powerbtnTask", 2048, NULL, 4, NULL);
+#endif
 
   while(1)  {
       vTaskDelay(10000);
