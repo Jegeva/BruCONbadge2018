@@ -148,11 +148,18 @@ int connectssl()
 
 int initurl()
 {
+#if OFFLINE_MODE
+    // Offline build (see settings.h): no network is up, so return an error
+    // instead of blocking forever in needWifi(). Callers already handle a
+    // non-zero return (e.g. the breathalyser upload just reports failure).
+    return -1;
+#else
     solvebadgehost();
     needWifi(true);
 
     initmbtls();
     return connectssl();
+#endif
 }
 void disconnect_ssl()
 {

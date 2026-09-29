@@ -112,9 +112,15 @@ void gui()
  char get_sched_attempt =0;
  char get_sched_max_attempt =3;
  TickType_t tickstart = xTaskGetTickCount();
-
+ (void)tickstart;
 
  switchbacklight(0);
+
+#if OFFLINE_MODE
+ // Skip GSTATE_INIT (Wi-Fi association); show the offline menu immediately.
+ main_state = GSTATE_MAIN_MENU;
+ switchbacklight(1);
+#endif
 
   while(1){
       TIMERG0.wdt_wprotect=TIMG_WDT_WKEY_VALUE;
@@ -320,7 +326,9 @@ void app_main()
     }*/
 
   xTaskCreatePinnedToCore(&gui        , "guiTask" , 8192, NULL, 5| portPRIVILEGE_BIT , NULL,1);
+#if !OFFLINE_MODE
   xTaskCreate(&wificonnect, "wifiTask", 8192, NULL, 0| portPRIVILEGE_BIT, NULL);
+#endif
   xTaskCreate(&backlighttimeoutTask, "backlighttimeoutTask", 4096, NULL, 0| portPRIVILEGE_BIT, NULL);
   xTaskCreate(&wifitimeoutTask, "wifitimeoutTask", 4096, NULL, 0| portPRIVILEGE_BIT, NULL);
 
